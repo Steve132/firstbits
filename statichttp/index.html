@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<head>
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">
+	    <style>
+			body {
+			padding-top: 40px;
+			padding-bottom: 40px;
+			background-color: #eee;
+			}
+
+			.form-search {
+			max-width: 512px;
+			padding: 15px;
+			margin: 0 auto;
+			}
+			.form-search .form-search-heading,
+			.form-search .checkbox {
+			margin-bottom: 10px;
+			}
+			.form-search .checkbox {
+			font-weight: normal;
+			}
+			.form-search .form-control {
+			position: relative;
+			height: auto;
+			-webkit-box-sizing: border-box;
+			-moz-box-sizing: border-box;
+			  box-sizing: border-box;
+			padding: 10px;
+			font-size: 16px;
+			}
+			.form-search .form-control:focus {
+			z-index: 1055;
+			}
+			.well{
+			background-color:#d9edf7;
+			}
+		</style>
+</head>
+<body>	
+	<div class="container">
+      <form class="form-search" role="form">
+        <h1>Firstbits Search</h1>
+		<div class="well">
+			<div class="alert alert-danger" id="alert-box" role="alert"> 
+				<span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true" id="alert-text"></span>
+			</div>
+			<p><input id="search" type="text" class="form-control form-search" data-provide="typeahead" css=".dropdown-menu { min-width: 100% }" autocomplete="off" autofocus placeholder="Enter at least 5 characters of an address"></p>
+			<label><input id="case_sensitive" type="checkbox" checked="checked">Case Sensitive?</label>
+			
+		</div>
+		<div>
+			<table><tr><td><strong><a href="docs.html">API Docs</a></strong></td><td><label>Donate: <a href="https://blockchain.info/address/1LEADL6qn8He83wtJB9qWDAfvyKxWxqBL7">1LEADL6qn8He83wtJB9qWDAfvyKxWxqBL7</a></td></tr></table>
+		</div>
+      </form>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+	<script src="js/bootstrap3-typeahead.min.js"></script>
+ 
+	<script type="text/javascript">
+		var addresses = [];
+		$(document).ready(function($)
+		{
+			$("#alert-box").hide();
+
+			// Workaround for bug in mouse item selection
+			/*$.fn.typeahead.Constructor.prototype.blur = function()
+			{
+				var that = this;
+				setTimeout(function ()
+				{
+					that.hide();
+				}, 250);
+			};*/
+
+			function ontypeahead(query, process)
+			{
+				var endpoint="/api/firstbits/";
+				var cs=$("#case_sensitive").prop('checked');
+				if(cs)
+				{
+					endpoint+="sensitive/";
+				}
+				else
+				{
+					endpoint+="insensitive/";
+				}
+				$.getJSON(endpoint + query).done(function(data)
+				{
+					if(Array.isArray(data))
+					{
+						process(data);
+					}
+				});
+			}
+
+			/*function handleSelection()
+			{
+				console.log("HANDLING SELECTION: " + query);
+				var query = $("#search").val();
+				if(query.length < 5)
+				{
+					$("#alert-text").append("Cannot search: too few characters");
+					$("#alert-box").show();
+				}
+				else
+					window.location = "https://blockchain.info/address/" + query;
+			}*/
+			function jumptoselectedaddress(addr)
+			{
+				window.location="https://blockchain.info/address/" + addr;
+			}
+
+			$("#search").typeahead(
+			{
+				source: ontypeahead,
+				items: "all",
+				minLength: 5,
+				updater: jumptoselectedaddress,
+			});
+		});
+	</script>
+ 
+</body>
+</html>
