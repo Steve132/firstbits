@@ -37,6 +37,10 @@ bool search_comparator(address_t a,address_t b)
 	lowermod(b);
 	return memcmp(reinterpret_cast<const char*>(&a),reinterpret_cast<const char*>(&b),n) < 0;
 }
+bool meta_comparator(address_t a,address_t b)
+{
+	return a.meta < b.meta;
+}
 
 
 struct block_t
@@ -87,6 +91,7 @@ inline std::uint64_t firstbits_t::hashbucket(const address_t& bitsearch) const
 	}
 	return hashindex;
 }
+
 	
 void firstbits_t::create_file(const std::string& fn,const metadata_t& md)
 {
@@ -95,8 +100,8 @@ void firstbits_t::create_file(const std::string& fn,const metadata_t& md)
 	write_le(outfile,md.num_blocks);
 	write_le(outfile,md.max_addresses_per_block);
 	write_le(outfile,md.num_characters_per_block);
-	write_le<std::uint32_t>(outfile,0);//set the last blockchainid
-	size_t blocksize=md.max_addresses_per_block*SIZE_ADDRESS+sizeof(std::uint16_t);
+	write_le<uint32_t>(outfile,0);//set the genesis block
+	size_t blocksize=md.max_addresses_per_block*sizeof(address_t)+sizeof(std::uint16_t);
 	size_t totalsize=md.num_blocks*blocksize;
 	
 	
@@ -113,12 +118,12 @@ void firstbits_t::create_file(const std::string& fn,const metadata_t& md)
 	
 inline int firstbits_t::safemsync(void* addr,size_t len,int flags)
 {
-	size_t addrl=(size_t)addr;
+/*	size_t addrl=(size_t)addr;
 	size_t addrp=addrl & ~(pagesize-1);
 	len+=addrl-addrp;
 	return msync((void*)addrp,len,flags);
-	
-	//return 0;
+*/
+	return 0;
 }
 
 
@@ -138,7 +143,7 @@ firstbits_t::firstbits_t(const std::string& filename,const metadata_t& md)
 	mdata.num_characters_per_block=read_le<std::uint8_t>(indata);
 	indata.close();
 	block_threadstate.reset(new std::atomic<std::uint32_t>[mdata.num_blocks]);
-	blocksize=mdata.max_addresses_per_block*SIZE_ADDRESS+sizeof(std::uint16_t);
+	blocksize=mdata.max_addresses_per_block*sizeof(address_t)+sizeof(std::uint16_t);
 	size_t len=sizeof(metadata_t)+sizeof(uint32_t)+mdata.num_blocks*blocksize;
 	
 	backendfd=open(filename.c_str(),O_RDWR | O_NOATIME);
@@ -150,17 +155,17 @@ firstbits_t::firstbits_t(const std::string& filename,const metadata_t& md)
 	
 	char* curpos=filebeginning;
 	curpos+=sizeof(mdata);
-	lastblockchainid=reinterpret_cast<uint32_t*>(curpos);
+	lastblockheight=reinterpret_cast<uint32_t*>(curpos);
 	curpos+=sizeof(uint32_t);
 	
 	tablebeginning=curpos;
 }
 
-std::pair<const address_t*,const address_t*> firstbits_t::get_firstbits(const std::string& bitsearch) const
+std::vector<address_t> firstbits_t::get_firstbits(const std::string& bitsearch) const
 {
 	if(bitsearch.size() < 5 || bitsearch.size() > SIZE_ADDRESS)
 	{
-		return {NULL,NULL};
+		return std::vector<address_t>();
 	}
 	
 	address_t searchbits(bitsearch);
@@ -180,7 +185,9 @@ std::pair<const address_t*,const address_t*> firstbits_t::get_firstbits(const st
 	const address_t *outend=std::upper_bound(first,last,searchbits,search_comparator);
 	
 	--(*readerstate);
-	return {outbegin,outend};
+	std::vector<address_t> out(outbegin,outend);
+	std::sort(out.begin(),out.end(),meta_comparator);
+	return out;
 }
 	
 void firstbits_t::insert_address(const address_t& address)		
@@ -197,8 +204,11 @@ void firstbits_t::insert_address(const address_t& address)
 	address_t* last=first+thisblock->num_addresses;
 	address_t *position=std::lower_bound(first,last,address);
 	
-	if(	(thisblock->num_addresses != this->mdata.max_addresses_per_block)
-		&& (strncmp(reinterpret_cast<const char*>(position),reinterpret_cast<const char*>(&address),SIZE_ADDRESS)!=0))//Don't insert duplicates!
+	if(strncmp(reinterpret_cast<const char*>(&position->data[0]),reinterpret_cast<const char*>(&address.data[0]),SIZE_ADDRESS)==0)//Don't insert duplicates! only update metadata
+	{
+		position->meta=std::max(address.meta,position->meta);
+	}
+	else if(thisblock->num_addresses != this->mdata.max_addresses_per_block) 
 	{
 		*(last)=address;
 		std::rotate(position,last,last+1);

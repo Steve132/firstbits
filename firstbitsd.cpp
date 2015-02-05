@@ -6,6 +6,9 @@
 #include<sstream>
 #include<memory>
 #include<iterator>
+#include<thread>
+#include<functional>
+#include<atomic>
 #include "microhttpdpp.hpp"
 #include "mhttpdfiles.h"
 #include "microhttpd.h"
@@ -13,13 +16,18 @@
 
 /*
 Requests it can recieve: 
-	POST /block (authentication required...maybe only allowed from localhost!)
+	POST API is disabled.
+	NAMED PIPE recieves address-int pairs instead.
+	POST /api/admin/block/<number> (authentication required...maybe only allowed from localhost!)
 		goes through and processes adding the block to the mmapped file.  Calls msync when finished and then (last) updates the lastblockid number
-		(block is not blockfile format (fuck parsing that noise) but is instead a JSON list of addresses and a blocknumber max.
-	GET /block
-		recieves the age of the last block added to the DB
+		(block is not blockfile format (fuck parsing that noise) but is instead merely a whitespace separated list of addresses
+	POST /api/admin/pay (satoshi)
+		Goes through and updates all the given totals from the whitespace seperated address satoshi pairs.  If an address appears twice, the total satoshi are added
+	
+	GET /api/block
+		recieves the hash of the last block added to the DB
 		
-	GET /firstbits/<bitstring>
+	GET /api/firstbits/<bitstring>
 		/looks up in the database and returns a list of all the addresses that match..  Needs at least version and 4 characters or it fails.
 */
 	
@@ -39,6 +47,43 @@ int test()
 }
 #endif
 
+static std::string queryfb(firstbits_t* fb,const std::string& searchquery,bool case_sensitive=false)
+{
+	std::ostringstream oss;
+	oss << "[";	
+	bool skip=false;
+	for(auto ch:searchquery)
+	{
+		if(!isalnum(ch))
+		{
+			skip=true;
+		}
+	}
+	if(!skip)
+	{
+		auto result=fb->get_firstbits(searchquery);
+		bool comma=false;
+
+		for(auto i=result.cbegin();i!=result.cend();++i)
+		{
+			bool should_skip=case_sensitive && (0!=strncmp(&i->data[0],searchquery.data(),searchquery.size()));
+			if(!should_skip)
+			{
+		
+				if(comma)
+				{
+					oss << ",";
+				}
+				oss << "\"" << &(i->data[0]) << "\"";
+				comma=true;
+			}
+		}
+	}
+	
+	oss << "]";
+	return oss.str();
+}
+
 static int api_server(firstbits_t* fb,
 			struct MHD_Connection * con,
 			const std::string& url,
@@ -48,13 +93,11 @@ static int api_server(firstbits_t* fb,
 			size_t * upload_data_size,
 			void ** ptr)
 {
-	static int dummy;			//Not reentrant?!
+	static int dummy;
 	static const char* API_FAIL="<html><body><h1>Api Call not recognized</h1></body></html>";
 	if(&dummy != *ptr)
 	{
-		/* The first time only the headers are valid,
-			do not respond in the first round... */
-		*ptr = &dummy;
+		*ptr=&dummy;
 		return MHD_YES;
 	}
 	
@@ -74,9 +117,7 @@ static int api_server(firstbits_t* fb,
 				ci=url.cbegin()+27;
 				case_sensitive=false;
 			}
-			std::ostringstream oss;
-			oss << "[";
-			bool skip=false;
+			
 			std::string searchquery;
 			try
 			{
@@ -85,48 +126,62 @@ static int api_server(firstbits_t* fb,
 			{
 				return mdhpp_respond(con,API_FAIL);
 			}
-						
-			for(auto ch:searchquery)
-			{
-				if(!isalnum(ch))
-				{
-					skip=true;
-				}
-			}
-			if(!skip)
-			{
-				auto result=fb->get_firstbits(searchquery);
-				bool comma=false;
-	
-				for(const address_t* i=result.first;i!=result.second;++i)
-				{
-					bool should_skip=case_sensitive && (0!=strncmp(&i->data[0],searchquery.data(),searchquery.size()));
-					if(!should_skip)
-					{
-				
-						if(comma)
-						{
-							oss << ",";
-						}
-						oss << "\"" << &(i->data[0]) << "\"";
-						comma=true;
-					}
-				}
-			}
 			
-			oss << "]";
-			return mdhpp_respond(con,oss.str());
+			
+			return mdhpp_respond(con,queryfb(fb,searchquery,case_sensitive));
 		}
 		else if(url.substr(5,5)=="block")
 		{
 			std::ostringstream oss;
-			oss << *(fb->lastblockchainid) << "\n";
+			oss << *(fb->lastblockheight) << "\n";
 			return mdhpp_respond(con,oss.str());
 		}
 		return mdhpp_respond(con,API_FAIL);
 	}
+	else if(method=="POST")
+	{
+		
+		return MHD_NO;
+	/*	if(url.substr(5,5)!="admin")
+		{
+			return MHD_NO;
+		}
+		const MHD_ConnectionInfo* mci=MHD_get_connection_info(con,MHD_CONNECTION_INFO_CLIENT_ADDRESS);
+		//std::uint32_t lhst=htonl(INADDR_LOOPBACK);//only localhost can connect via POST
+		const uint8_t lhstb[4]={0x7F,0x00,0x00,0x01};
+		if(memcmp(mci->client_addr->sa_data,lhstb,4)!=0)
+		{
+			return MHD_NO;
+		}
+		
+		std::string postdata(upload_data,upload_data+*upload_data_size);
+		std::istringstream input(postdata);
+		//	/api/admin/pro/
+		//	/api/admin/block/
+		//	0123456789ABCDEF01
+		if(url.substr(0xB,3)=="pro")
+		{
+			for(auto ai=std::istream_iterator<address_t>(input);ai!=std::istream_iterator<address_t>();++ai)
+			{
+				fb->insert_address(*ai);
+			}
+		}
+		else if(url.substr(0xB,5)=="block")
+		{
+			int bh=atoi(url.c_str()+0x11);
+			fb->load_block(bh,std::istream_iterator<std::string>(input),std::istream_iterator<std::string>());
+		}
+		else
+		{
+			return MHD_NO;
+		}
+
+		return MHD_YES;*/
+	}
 	return MHD_NO;
 }
+
+
 
 static int serve_dispatch(filecache* fc,firstbits_t* fb,
 			struct MHD_Connection * con,
@@ -150,6 +205,25 @@ static int serve_dispatch(filecache* fc,firstbits_t* fb,
 	}
 }
 
+static void update_thread(std::atomic<bool>* bail,firstbits_t* fb,const std::string& namedpipename="firstbitscmds")
+{	
+	while(!(*bail))
+	{
+		std::ifstream inpipe(namedpipename.c_str());
+		if(!inpipe)
+		{
+			if(0!=mkfifo(namedpipename.c_str(),0766))
+			{
+				throw std::runtime_error("Error, failed to make named pipe");
+			}
+			continue;
+		}
+		uint32_t bh;	//first print blockheight.
+		inpipe >> bh;	//then print blocks
+		fb->load_block(bh,std::istream_iterator<address_t>(inpipe),std::istream_iterator<address_t>());
+	}
+}
+
 int main(int argc,char** argv)
 {
 	std::string httpdir=".";
@@ -157,11 +231,12 @@ int main(int argc,char** argv)
 	std::string dbfile="out.db";
 	uint32_t num_characters_per_block=3;
 	uint32_t num_addresses_per_block=16;
-	uint32_t load_block=0;
+	uint32_t load_block;
+	bool do_load_block=false;
 	bool create_only=false;
 	
 	std::vector<std::string> args(argv,argv+argc);
-	for(uint i=1;i<argc;i++)
+	for(int i=1;i<argc;i++)
 	{
 		if(args[i]=="--httpdir")
 		{
@@ -186,6 +261,7 @@ int main(int argc,char** argv)
 		else if(args[i]=="--load_block")
 		{
 			std::istringstream(args[++i]) >> load_block;
+			do_load_block=true;
 		}
 		else if(args[i]=="--create_only")
 		{
@@ -203,7 +279,7 @@ int main(int argc,char** argv)
 	}
 	firstbits_t fb(dbfile,mdata);
 	
-	if(load_block==0)
+	if(!do_load_block)
 	{
 		if(create_only)
 		{
@@ -227,7 +303,12 @@ int main(int argc,char** argv)
 		       MHD_OPTION_END);
 		if (d == NULL)
 			return 1;
+		std::atomic<bool> bail;
+		bail=false;
+		std::thread controlfifothread(update_thread,&bail,&fb,"Hello");
 		(void) getchar ();
+		bail=true;
+		controlfifothread.join();
 		MHD_stop_daemon(d);
 		return 0;
 

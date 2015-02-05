@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<head>
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+	<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap-theme.min.css">
+	    <style>
+			body {
+			padding-top: 40px;
+			padding-bottom: 40px;
+			background-color: #eee;
+			}
+
+			.form-search {
+			max-width: 512px;
+			padding: 15px;
+			margin: 0 auto;
+			}
+			.form-search .form-search-heading,
+			.form-search .checkbox {
+			margin-bottom: 10px;
+			}
+			.form-search .checkbox {
+			font-weight: normal;
+			}
+			.form-search .form-control {
+			position: relative;
+			height: auto;
+			-webkit-box-sizing: border-box;
+			-moz-box-sizing: border-box;
+			  box-sizing: border-box;
+			padding: 10px;
+			font-size: 16px;
+			}
+			.form-search .form-control:focus {
+			z-index: 1055;
+			}
+			.well{
+			background-color:#d9edf7;
+			}
+		</style>
+</head>
+<body>	
+	<div class="container">
+		<h1>Firstbits Results for <b class="address"></b></h1>
+		<div id="tabl">
+			No Results Found...
+		</div>
+		<div>
+			<h3>Want your results to be higher on the list?  Go <a href="pro.html">PRO</a>
+		</div>
+	</div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+	<script type="text/javascript">
+		var addresses = [];
+		var searchquery = "";
+		function printtable(results)
+		{
+			tablecontents="";
+			for(var i=0;i<results.length;i++)
+			{
+				tablerow="<tr><td><a href=\"https://blockchain.info/address/"+results[i]+"\">"+results[i]+"</a></td></tr>\n";
+				tablecontents+=tablerow;
+			}
+			$("#tabl").html("<table>"+tablecontents+"</table>");
+		}
+		function runtableinit(query)
+		{
+			var endpoint="/api/firstbits/";
+			var cs=false;
+			if(cs)
+			{
+				endpoint+="sensitive/";
+			}
+			else
+			{
+				endpoint+="insensitive/";
+			}
+			$.getJSON(endpoint + query).done(function(data)
+			{
+				if(Array.isArray(data) && data.length > 0)
+				{
+					printtable(data);
+				}
+			});
+		}
+		$(document).ready(function($)
+		{
+			searchquery=window.location.search.replace("?", "");
+			$(".address").html(searchquery);
+			runtableinit(searchquery);
+		});
+	</script>
+ 
+</body>
+</html>
